@@ -1,7 +1,6 @@
 #include "communication_port.h"
 
-
-// serial_port_t app_serial = {0};
+serial_port_t sp = {0};
 struct termios serial_state = {0};
 
 static speed_t to_baud(int baud)
@@ -68,17 +67,22 @@ static speed_t to_baud(int baud)
     }
 }
 
-static int p_set_termios(int* fd, int baud , bool rtcstr)
+static int p_set_termios(int* fd, int baud , bool rctstr)
 {
     struct termios tio;
     speed_t io_baud;
     memset(&tio,0,sizeof(tio));
+
+    if(tcgetattr(*fd,&tio) < 0)
+    {
+        return -1;
+    }
     cfmakeraw(&tio);
     //实现8IN1设置
     tio.c_cflag &= ~(CSIZE | PARENB | CSTOPB); 
     tio.c_cflag |= (CS8 | CREAD | CLOCAL); 
     //判断是否启用硬件流量控制
-    if(rtcstr)
+    if(rctstr)
         tio.c_cflag |= CRTSCTS; 
     else
         tio.c_cflag &= ~CRTSCTS;

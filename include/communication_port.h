@@ -26,8 +26,6 @@
 
 #define EPOLLFD_MAXMUM  10 
 
-extern serial_port_t app_serial;
-
 typedef struct serial_port 
 {
     int fd;
@@ -36,6 +34,8 @@ typedef struct serial_port
     ssize_t (*sp_read)(const int fd, void* buff, size_t len);
     int (*sp_close)(int *sp_fd);
 }serial_port_t;
+
+extern serial_port_t sp;
 
 int app_serial_init(serial_port_t *app_serial, const char* io_path, int baud, bool rtcstr);
 
