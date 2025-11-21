@@ -18,7 +18,9 @@
 #include<sys/epoll.h>
 #include<asm-generic/termbits.h>
 #include<limits.h>
-
+#include<arpa/inet.h>
+#include<netinet/in.h>
+#include<netdb.h>
 
 #ifndef LOG_ENABLE
 #define LOG_ENABLE  1

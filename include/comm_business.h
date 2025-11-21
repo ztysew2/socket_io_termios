@@ -7,6 +7,7 @@
 #define BUFF_TYPE_DE    0x01
 #define BUFF_TYPE_MULT  0x02    
 #define BUFF_END        0xA55A
+#define LENGTH_SIZE     5
 
 #define GET_NULL        0
 #define GET_HEAD        1

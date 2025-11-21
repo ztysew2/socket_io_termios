@@ -7,21 +7,48 @@ recv_th_t app_recv_thread;
 pthread_mutex_t app_serial_mutex = PTHREAD_MUTEX_INITIALIZER;//互斥量
 pthread_cond_t app_serial_cont = PTHREAD_COND_INITIALIZER;//信号量
 
+static bool interval_ms(uint16_t ms)
+{
+    static time_t 
+}
+
 static void app_send_enter(void *param)
 {
     static uint8_t test_state = 0;
+    uint8_t *send_buff = 0;
+    bool result = 0;
     while(true)
     {
         switch(test_state)
         {
         case 0:
+            memset(send_buff,0,LENGTH_SIZE);
+            send_buff[0] == (uint8_t)BUFF_HEAD;
+            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
+            send_buff[2] == BUFF_TYPE_ADD;
+            send_buff[3] == (uint8_t)BUFF_END;
+            send_buff[4] == (uint8_t)(BUFF_END>>8);
             break;
         case 1:
+            send_buff[0] == (uint8_t)BUFF_HEAD;
+            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
+            send_buff[2] == BUFF_TYPE_DE;
+            send_buff[3] == (uint8_t)BUFF_END;
+            send_buff[4] == (uint8_t)(BUFF_END>>8);
             break;
         case 2:
+            send_buff[0] == (uint8_t)BUFF_HEAD;
+            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
+            send_buff[2] == BUFF_TYPE_MULT;
+            send_buff[3] == (uint8_t)BUFF_END;
+            send_buff[4] == (uint8_t)(BUFF_END>>8);
             break;
         }
-        sp.sp_write(sp.fd,)
+        result = sp.sp_write(sp.fd,(void *)send_buff,LENGTH_SIZE);
+        while(result <= 0)
+        {
+            result = sp.sp_write(sp.fd,(void *)send_buff,LENGTH_SIZE);
+        }
     }
 }
 
