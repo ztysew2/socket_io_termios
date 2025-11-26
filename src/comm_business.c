@@ -1,163 +1,134 @@
 #include "comm_business.h"
 #include<pthread.h>
 
-uint8_t test_recv_buff[128];
-send_th_t app_send_thread;
-recv_th_t app_recv_thread;
-pthread_mutex_t app_serial_mutex = PTHREAD_MUTEX_INITIALIZER;//互斥量
-pthread_cond_t app_serial_cont = PTHREAD_COND_INITIALIZER;//信号量
 
-static bool interval_ms(uint16_t ms)
+//==================模块==========================================
+static size_t app_ringbuff_usedlen(app_ringbuff_t* serial_ringbuff)
 {
-    static time_t 
-}
-
-static void app_send_enter(void *param)
-{
-    static uint8_t test_state = 0;
-    uint8_t *send_buff = 0;
-    bool result = 0;
-    while(true)
+    if(serial_ringbuff->tail > serial_ringbuff->head)
     {
-        switch(test_state)
-        {
-        case 0:
-            memset(send_buff,0,LENGTH_SIZE);
-            send_buff[0] == (uint8_t)BUFF_HEAD;
-            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
-            send_buff[2] == BUFF_TYPE_ADD;
-            send_buff[3] == (uint8_t)BUFF_END;
-            send_buff[4] == (uint8_t)(BUFF_END>>8);
-            break;
-        case 1:
-            send_buff[0] == (uint8_t)BUFF_HEAD;
-            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
-            send_buff[2] == BUFF_TYPE_DE;
-            send_buff[3] == (uint8_t)BUFF_END;
-            send_buff[4] == (uint8_t)(BUFF_END>>8);
-            break;
-        case 2:
-            send_buff[0] == (uint8_t)BUFF_HEAD;
-            send_buff[1] == (uint8_t)(BUFF_HEAD>>8);
-            send_buff[2] == BUFF_TYPE_MULT;
-            send_buff[3] == (uint8_t)BUFF_END;
-            send_buff[4] == (uint8_t)(BUFF_END>>8);
-            break;
-        }
-        result = sp.sp_write(sp.fd,(void *)send_buff,LENGTH_SIZE);
-        while(result <= 0)
-        {
-            result = sp.sp_write(sp.fd,(void *)send_buff,LENGTH_SIZE);
-        }
-    }
-}
-
-static void app_recv_enter(void *param)
-{
-    while(app_recv_thread.running)
-    {
-        sp.sp_read(sp.fd,(void*)test_recv_buff,sizeof(test_recv_buff));
-        
-    }
-}
-
-static int receive_state_machine(const uint8_t* recv_buff,ssize_t length)
-{
-    int result = 0;
-    bool half_get = 0;
-    int recv_step = 0;
-    int offset = 0;
-    while(offset < length)
-    {
-        switch(recv_step)
-        {
-            case GET_NULL:
-                if(recv_buff[offset] == (uint8_t)BUFF_HEAD)
-                {
-                    half_get = 1;
-                }
-                else if(recv_buff[offset] == (uint8_t)(BUFF_HEAD>>8))
-                {
-                    if(half_get)
-                    {
-                        half_get = 0;
-                        recv_step = GET_HEAD;
-                    }
-                }
-                else
-                {
-                }
-                break;
-            case GET_HEAD:
-                if(recv_buff[offset] > 2 || recv_buff[offset] < 0)
-                {
-                    recv_step = GET_NULL;
-                }
-                else
-                {
-                    result = recv_buff[offset];
-                    recv_step = GET_DATA;
-                }
-                break;
-            case GET_DATA:
-                if(recv_buff[offset] == (uint8_t)BUFF_END)
-                {
-                    half_get = 1;
-                }
-                else if(recv_buff[offset] == (uint8_t)(BUFF_END >> 8))
-                {
-                    if(half_get)
-                    {
-                        recv_step = GET_END;
-                    }
-                }
-                else
-                {
-                    recv_step = GET_NULL;
-                }
-                break;
-            case GET_END:
-                offset = length;
-                break;
-            default:
-                offset = length;
-                break;
-        }
-        offset++;
-    }
-    if(recv_step != GET_END)
-    {
-        return -1;
+        return serial_ringbuff->buff_len - (serial_ringbuff->tail-serial_ringbuff->head);
     }
     else
     {
-        return result;
+        return serial_ringbuff->head - serial_ringbuff->tail;
     }
+
 }
 
-int app_transport_thread_init(void)
+static int app_ringbuff_init(app_ringbuff_t* serial_ringbuff)
 {
-    int send_rc = 0,recv_rc = 0;
-    void *arg;
-    send_rc = pthread_create(&(app_send_thread.send_thrc),NULL,app_send_enter,arg);
-    if(send_rc != 0)
-    {
-        printf("Fail to create Send thread\r\n");
+    if(!serial_ringbuff)
         return -1;
-    }
-    recv_rc = pthread_create(&(app_recv_thread.recv_thrc),NULL,app_recv_enter,arg);
-    if(recv_rc != 0)
+    if(serial_ringbuff->recv_buff )
     {
-        printf("Fail to create Recv thread\r\n");
-        return -1;
+        free(serial_ringbuff->recv_buff);
+        serial_ringbuff->recv_buff = NULL;
     }
-    app_send_thread.running = 1;
-    app_recv_thread.running = 1;
+    serial_ringbuff->recv_buff = calloc(RCV_LEN,sizeof(uint8_t));
+    if(!serial_ringbuff->recv_buff)
+        return -1;
+    serial_ringbuff->buff_len = RCV_LEN;
+    serial_ringbuff->head = 0;
+    serial_ringbuff->tail = 0;
     return 0;
-    
 }
 
-int app_transport_thread_deinit(void)
+static int app_ringbuff_read(app_ringbuff_t* serial_ringbuff,uint8_t* read_buff,size_t len)
+{
+    if(!serial_ringbuff->recv_buff || !read_buff)
+        return -1;
+    size_t had_write = app_ringbuff_usedlen(serial_ringbuff);
+
+    if(len > had_write)
+        return -1;
+    for(int i = 0; i < len ; i++)
+    {
+        read_buff[i] = serial_ringbuff->recv_buff[(serial_ringbuff->tail+i) % serial_ringbuff->buff_len];
+    }
+    serial_ringbuff->tail = (serial_ringbuff->tail + len) % serial_ringbuff->buff_len;
+    return 0;
+}
+
+static int app_ringbuff_write(app_ringbuff_t* serial_ringbuff,const uint8_t* write_buff,size_t len)
 {
 
+    if(!serial_ringbuff->recv_buff || !write_buff)
+        return -1;
+
+    size_t used = app_ringbuff_usedlen(serial_ringbuff);
+    size_t free = serial_ringbuff->buff_len - used - 1;   // 留一格作为区分空/满
+
+    if (len > free)
+        return -1;
+
+    for(int i = 0; i < len ; i++)
+    {
+        serial_ringbuff->recv_buff[(serial_ringbuff->head + i) % serial_ringbuff->buff_len] = write_buff[i];
+    }
+    serial_ringbuff->head = (serial_ringbuff->head + len) % (serial_ringbuff->buff_len);
+    return 0;
 }
+
+static int app_ringbuff_deinit(app_ringbuff_t* serial_ringbuff)
+{
+    if(!serial_ringbuff)
+        return -1;
+    if(serial_ringbuff->recv_buff)
+    {
+        free(serial_ringbuff->recv_buff);
+        serial_ringbuff->recv_buff = NULL;
+    }
+    serial_ringbuff->buff_len = 0;
+    serial_ringbuff->head = 0;
+    serial_ringbuff->tail = 0;
+    return 0;
+}
+
+static void txq_init(tx_queue_t* q)
+{
+    q->head = q->tail = NULL;
+    q->queued_bytes = 0;
+}
+
+static txq_push(tx_queue_t* q,const uint8_t* data,size_t len)
+{
+    if(!q || !data)
+        return -1;
+    
+    tx_msg_t* msg = (tx_msg_t*)malloc(sizeof(msg));
+    memset(msg->buf,0,len);
+    memcpy(msg->buf,data,len);
+    msg->len = len;
+    msg->sent = 0;
+    msg->next = NULL;
+    if(!q->tail)
+    {
+        q->head = q->tail = msg;
+    }
+    else
+    {
+        q->tail->next = msg;
+        q->tail = q->tail->next;
+    }
+    q->queued_bytes +=len;
+    return 0;
+}
+
+static void txq_pop(tx_queue_t* q)
+{
+    if(!q || !q->head)
+        return -1;
+    tx_msg_t* p = q->head;
+    q->head = q->head->next;
+    if(!q->head)
+    {
+        q->tail = NULL;
+    }
+    q->queued_bytes -= p->len;
+    free(p->buf);
+    free(p);
+}
+
+//=============函数======================
+/*函数收发*/

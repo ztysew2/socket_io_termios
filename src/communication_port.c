@@ -67,6 +67,32 @@ static speed_t to_baud(int baud)
     }
 }
 
+static int tcp_type_find(const char* dev,char* host,size_t host_len,char* port,size_t port_len)
+{
+    if(strncmp(dev,"tcp://",6) != 0)
+    {
+        return -1;
+    }
+    const char* p = dev + 6;
+    const char* t = strstr(p,':');
+    if(t == NULL)
+        return -1;
+    int hlen = (int)(t - p);
+    if((size_t)hlen + 1 > host_len)
+        return -1;
+    memset(host,0,host_len);
+    memcpy(host,p,hlen);
+    host[hlen] = '\0';
+    p = t + 1;
+    size_t plen = strlen(p);
+    if((size_t)plen + 1 > port_len)
+        return -1;
+    memset(port,0,port_len);
+    memcpy(port,p,plen);
+    port[plen] = '\0';
+    return 0;
+}
+
 /*串口终端初始化*/
 static int comm_ter_serial_open(serial_port_t* sp, char* filePath, bool if_strctr, int baud)
 {
@@ -164,6 +190,26 @@ static int comm_ter_socket_open(serial_port_t *sp , char* host_or_ip, char* port
         return -1;
 }
 
+static int comm_ter_open(serial_port_t* sp,
+     const char* dev,int baud,int strctr)
+{
+    char host[128];
+    char port[32];
+    if(tcp_type_find(dev,host,sizeof(host),port,sizeof(port)) < 0)
+    {    
+        sp->is_socket = 0;
+        if(comm_ter_serial_open(sp,dev,(bool)strctr,baud) < 0)
+            return -1;
+    }
+    else
+    {
+        sp->is_socket = 1;
+        if(comm_ter_socket_open(sp,host,port) < 0)
+            return -1;
+    }
+    return 0;
+}
+
 static int comm_ter_close(serial_port_t* sp)
 {   
     if(sp->fd >= 0)
@@ -174,29 +220,61 @@ static int comm_ter_close(serial_port_t* sp)
     return 0;
 }
 
-static int comm_ter_registration()
+static ssize_t comm_ter_write(serial_port_t* sp,const uint8_t* buf,size_t cap)
 {
-
-}
-
-static ssize_t comm_ter_read(serial_port_t* sp,const uint8_t* buf,size_t cap)
-{
-    int iswrite = 0;
+    ssize_t iswrite = 0;
+    ssize_t n = 0;
     while(iswrite < cap)
     {
         n = write(sp->fd,buf+iswrite,cap-iswrite);
-    if(n < 0)
-    {
-
+        if(n > 0)
+        {
+            iswrite += n;
+            continue;
+        }
+        else if(n == 0)
+        {
+            errno = EIO;
+            return -1;
+        }
+        else
+        {
+            if(errno == EINTR)
+                continue;
+            if(errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            return -1;
+        }
     }
-    else if(n = 0)
-    {
-
-    }
-    return n;
+    return iswrite;
 }
 
-static ssize_t comm_ter_write()
+static ssize_t comm_ter_read(serial_port_t* sp,uint8_t* out,size_t cap)
 {
+    ssize_t n = 0;
+    for(;;)
+    {
+        n = read(sp->fd,out,cap);
+        if(n > 0)
+            return n;
+        if(n == 0)
+            return 0;
+        if(errno == EINTR)
+            continue;
+        if(errno == EAGAIN || errno == EWOULDBLOCK)
+            return 0;
+        return -1;
+    }
+}
 
+serial_port_t* comm_ter_registration(void)
+{
+    serial_port_t *p = calloc(1,sizeof(*p));
+    p->fd = -1;
+    p->is_socket = 0;
+    p->sp_close = comm_ter_close;
+    p->sp_open = comm_ter_open;
+    p->sp_read = comm_ter_read;
+    p->sp_write = comm_ter_write;
+    return p;
 }

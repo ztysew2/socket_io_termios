@@ -14,6 +14,32 @@
 #define GET_DATA        2
 #define GET_END         3
 
+#define SND_LEN         1024
+#define RCV_LEN         1024   
+
+typedef struct app_ring_buff
+{
+    uint8_t* recv_buff;
+    size_t buff_len;
+    size_t head;        //下一次写入
+    size_t tail;        //下一次读取
+}app_ringbuff_t;
+
+typedef struct tx_msg
+{
+    uint8_t* buf;//完整整
+    size_t len;
+    size_t sent;//已发送字节
+    struct tx_msg *next;
+}tx_msg_t;
+
+typedef struct 
+{
+    tx_msg_t* head;//队列发送起始
+    tx_msg_t* tail;//队列结尾
+    size_t    queued_bytes;//当前队列里的字节数
+}tx_queue_t;
+
 typedef struct send_th
 {
     pthread_t send_thrc;

@@ -31,17 +31,12 @@
 typedef struct serial_port 
 {
     int fd;
+    bool is_socket;
     int (*sp_open)(int* fd ,const char* port_name ,int baud,bool rtcstr);
     ssize_t (*sp_write)(const int fd, const void* buff,size_t len);
     ssize_t (*sp_read)(const int fd, void* buff, size_t len);
     int (*sp_close)(int *sp_fd);
 }serial_port_t;
-
-extern serial_port_t sp;
-
-int app_serial_init(serial_port_t *app_serial, const char* io_path, int baud, bool rtcstr);
-
-void app_sleep_ms(uint32_t ms);
 
 void errExit(const char*fmt,...);
 
