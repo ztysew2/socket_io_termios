@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "communication_port.h": "c",
+        "netdb.h": "c",
+        "in.h": "c",
+        "comm_business.h": "c"
+    }
+}

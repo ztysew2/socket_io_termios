@@ -1,6 +1,6 @@
 #ifndef __COMM_BUS_H
 #define __COMM_BUS_H
-#include<communication_port.h>
+#include "communication_port.h"
 
 #define BUFF_HEAD       0x5AA5
 #define BUFF_TYPE_ADD   0x00
@@ -16,6 +16,8 @@
 
 #define SND_LEN         1024
 #define RCV_LEN         1024   
+
+#define EV_MAX          20
 
 typedef struct app_ring_buff
 {
@@ -49,7 +51,29 @@ typedef struct send_th
 typedef struct recv_th
 {
     pthread_t recv_thrc;
-    int running;
+    int running;s
 }recv_th_t;
+
+typedef struct rxb
+{
+    size_t (*rx_ulen)(app_ringbuff_t* sr);
+    int (*rx_init)(app_ringbuff_t* sr);
+    int (*rx_rd)(app_ringbuff_t* sr,uint8_t* read_buff,size_t len);
+    int (*rx_wr)(app_ringbuff_t* sr,const uint8_t* write_buff,size_t len);
+    int (*rx_deinit)(app_ringbuff_t* sr);
+
+}rxb_ops_t;
+
+typedef struct txq
+{
+    void (*txq_init)(tx_queue_t* q);
+    int (*txq_push)(tx_queue_t* q,const uint8_t* data,size_t len);
+    int (*txq_pop)(tx_queue_t* q);
+    int (*txq_flush)(int fd,tx_queue_t* q);
+    int (*txq_deinit)(tx_queue_t *q);
+}txq_ops_t;
+
+extern rxb_ops_t* rxb_ops;
+extern txq_ops_t* txq_ops;
 
 #endif

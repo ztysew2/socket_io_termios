@@ -1,7 +1,8 @@
 #include "communication_port.h"
 
-serial_port_t sp = {0};
 struct termios serial_state = {0};
+
+conn_ops_t  s_ops = {0};
 
 static speed_t to_baud(int baud)
 {
@@ -69,6 +70,8 @@ static speed_t to_baud(int baud)
 
 static int tcp_type_find(const char* dev,char* host,size_t host_len,char* port,size_t port_len)
 {
+    if(!dev || !host  || !port)
+        return -1;
     if(strncmp(dev,"tcp://",6) != 0)
     {
         return -1;
@@ -94,8 +97,10 @@ static int tcp_type_find(const char* dev,char* host,size_t host_len,char* port,s
 }
 
 /*串口终端初始化*/
-static int comm_ter_serial_open(serial_port_t* sp, char* filePath, bool if_strctr, int baud)
+static int comm_ter_serial_open(io_t* sp, char* filePath, bool if_strctr, int baud)
 {
+    if(!sp)
+        return -1;
     sp->fd = open(filePath,O_RDWR|O_NOCTTY|O_NONBLOCK);
 
     if(sp->fd < 0)
@@ -140,8 +145,10 @@ static int comm_ter_serial_open(serial_port_t* sp, char* filePath, bool if_strct
 }
 
 /*TCP终端初始化*/
-static int comm_ter_socket_open(serial_port_t *sp , char* host_or_ip, char* port_or_service)
+static int comm_ter_socket_open(io_t *sp , char* host_or_ip, char* port_or_service)
 {
+    if(!sp || !host_or_ip || !port_or_service)
+        return -1;
     int result = -1;
     struct addrinfo type_hint;
     struct addrinfo* addr_hint = NULL;
@@ -190,9 +197,11 @@ static int comm_ter_socket_open(serial_port_t *sp , char* host_or_ip, char* port
         return -1;
 }
 
-static int comm_ter_open(serial_port_t* sp,
+static int comm_ter_open(io_t* sp,
      const char* dev,int baud,int strctr)
 {
+    if(!sp || !dev)
+        return -1;
     char host[128];
     char port[32];
     if(tcp_type_find(dev,host,sizeof(host),port,sizeof(port)) < 0)
@@ -207,11 +216,16 @@ static int comm_ter_open(serial_port_t* sp,
         if(comm_ter_socket_open(sp,host,port) < 0)
             return -1;
     }
+    rxb_ops->rx_init(&(sp->rxb));
+    txq_ops->txq_init(&(sp->txq));
+
     return 0;
 }
 
-static int comm_ter_close(serial_port_t* sp)
+static int comm_ter_close(io_t* sp)
 {   
+    if(!sp)
+        return -1;
     if(sp->fd >= 0)
     {
         close(sp->fd);
@@ -220,8 +234,10 @@ static int comm_ter_close(serial_port_t* sp)
     return 0;
 }
 
-static ssize_t comm_ter_write(serial_port_t* sp,const uint8_t* buf,size_t cap)
+static ssize_t comm_ter_write(io_t* sp,const uint8_t* buf,size_t cap)
 {
+    if(!sp)
+        return -1;
     ssize_t iswrite = 0;
     ssize_t n = 0;
     while(iswrite < cap)
@@ -249,7 +265,7 @@ static ssize_t comm_ter_write(serial_port_t* sp,const uint8_t* buf,size_t cap)
     return iswrite;
 }
 
-static ssize_t comm_ter_read(serial_port_t* sp,uint8_t* out,size_t cap)
+static ssize_t comm_ter_read(io_t* sp,uint8_t* out,size_t cap)
 {
     ssize_t n = 0;
     for(;;)
@@ -267,14 +283,18 @@ static ssize_t comm_ter_read(serial_port_t* sp,uint8_t* out,size_t cap)
     }
 }
 
-serial_port_t* comm_ter_registration(void)
+io_t* comm_ter_registration(void)
 {
-    serial_port_t *p = calloc(1,sizeof(*p));
+    io_t *p = calloc(1,sizeof(*p));
     p->fd = -1;
     p->is_socket = 0;
-    p->sp_close = comm_ter_close;
-    p->sp_open = comm_ter_open;
-    p->sp_read = comm_ter_read;
-    p->sp_write = comm_ter_write;
+    if(!s_ops.sp_close || !s_ops.sp_open
+    || !s_ops.sp_read || !s_ops.sp_write)
+    {
+        s_ops.sp_open = comm_ter_open;
+        s_ops.sp_read = comm_ter_read;
+        s_ops.sp_write = comm_ter_write;
+        s_ops.sp_close = comm_ter_close;
+    }
     return p;
 }
