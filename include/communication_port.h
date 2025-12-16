@@ -47,10 +47,12 @@ typedef struct serial_port
 
 typedef struct ops
 {
+
     int (*sp_open)(io_t* sp ,const char* port_name ,int baud,bool rtcstr);
     ssize_t (*sp_write)(io_t* sp, const void* buff,size_t len);
     ssize_t (*sp_read)(io_t* sp, void* buff, size_t len);
     int (*sp_close)(io_t* sp);
+
 }conn_ops_t;
 
 extern conn_ops_t s_ops;
