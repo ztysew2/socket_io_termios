@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build communication_port",
+      "type": "shell",
+      "command": "/usr/bin/gcc-11",   // 如果没有 gcc-11 就改成 "/usr/bin/gcc"
+      "args": [
+        "-g",
+        "-fdiagnostics-color=always",
+        "-D_DEFAULT_SOURCE",
+        // ★ 关键：把 include 路径加进去
+        "-I", "${workspaceFolder}/include",
+
+        // 要编译的源文件
+        "${workspaceFolder}/src/communication_port.c",
+
+        // 输出到 build 目录
+        "-o", "${workspaceFolder}/build/communication_port"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
