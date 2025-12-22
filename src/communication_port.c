@@ -216,9 +216,7 @@ static int comm_ter_open(io_t* sp,
         if(comm_ter_socket_open(sp,host,port) < 0)
             return -1;
     }
-    rxb_ops->rx_init(&(sp->rxb));
-    txq_ops->txq_init(&(sp->txq));
-
+    
     return 0;
 }
 
@@ -230,6 +228,7 @@ static int comm_ter_close(io_t* sp)
     {
         close(sp->fd);
     }
+
     sp->fd = -1;
     return 0;
 }
@@ -258,7 +257,7 @@ static ssize_t comm_ter_write(io_t* sp,const uint8_t* buf,size_t cap)
             if(errno == EINTR)
                 continue;
             if(errno == EAGAIN || errno == EWOULDBLOCK)
-                continue;
+                return 0;
             return -1;
         }
     }
@@ -288,13 +287,13 @@ io_t* comm_ter_registration(void)
     io_t *p = calloc(1,sizeof(*p));
     p->fd = -1;
     p->is_socket = 0;
-    if(!s_ops.sp_close || !s_ops.sp_open
-    || !s_ops.sp_read || !s_ops.sp_write)
+    if(!p->fd_ops.sp_close || !p->fd_ops.sp_open
+    || !p->fd_ops.sp_read || !p->fd_ops.sp_write)
     {
-        s_ops.sp_open = comm_ter_open;
-        s_ops.sp_read = comm_ter_read;
-        s_ops.sp_write = comm_ter_write;
-        s_ops.sp_close = comm_ter_close;
+        p->fd_ops.sp_open = comm_ter_open;
+        p->fd_ops.sp_read = comm_ter_read;
+        p->fd_ops.sp_write = comm_ter_write;
+        p->fd_ops.sp_close = comm_ter_close;
     }
     return p;
 }

@@ -1,10 +1,9 @@
 #include "comm_business.h"
 #include <pthread.h>
 
-struct epoll_event ev = {0};
 struct epoll_event ev_list[EV_MAX] = {0};
-rxb_ops_t* rxb_ops = NULL;
-txq_ops_t* txq_ops = NULL;
+
+uint8_t io_rc_buff[BUFF_SIZE] = {0};
 
 //==================模块==========================================
 static size_t app_ringbuff_usedlen(app_ringbuff_t* serial_ringbuff)
@@ -40,7 +39,9 @@ static int app_ringbuff_init(app_ringbuff_t* serial_ringbuff)
 
 static int app_ringbuff_read(app_ringbuff_t* serial_ringbuff,uint8_t* read_buff,size_t len)
 {
-    if(!serial_ringbuff->recv_buff || !read_buff)
+    if(!serial_ringbuff->recv_buff)
+        return -2;
+    if(!read_buff)
         return -1;
     size_t had_write = app_ringbuff_usedlen(serial_ringbuff);
 
@@ -135,7 +136,7 @@ static int txq_pop(tx_queue_t* q)
     return 0;
 }
 
-static int txq_flush(int fd,tx_queue_t* q)
+static int txq_flush(conn_ctx_t* sp,tx_queue_t* q)
 {
     size_t rc = 0;
     if(!q)
@@ -156,11 +157,11 @@ static int txq_flush(int fd,tx_queue_t* q)
             msg = q->head;
             continue;
         }
-        if(!s_ops.sp_write)
+        if(!sp->io_data.fd_ops.sp_write)
         {
             return -1;
         }
-        rc = s_ops.sp_write(fd,msg->buf + msg->sent,msg->len - msg->sent);
+        rc = sp->io_data.fd_ops.sp_write(&(sp->io_data),msg->buf + msg->sent,msg->len - msg->sent);
         if(rc < 0)
         {
             return -1;
@@ -191,10 +192,29 @@ static int txq_deinit(tx_queue_t* q)
 /*函数收发*/
 
 /*io init*/
+int Communication_Carrier_Init(conn_ctx_t* sp)
+{
+    if(!sp)
+        return -1;
+    if(app_ringbuff_init(&(sp->rxb)) < 0)
+        return -1;
+    txq_init(&(sp->txq));
+    return 0;
+}
+
+int Communication_Carrier_Deinit(conn_ctx_t* sp)
+{
+    if(!sp)
+        return -1;
+    if(app_ringbuff_deinit(&(sp->rxb)) < 0)
+        return -1;
+    txq_deinit(&(sp->txq));
+    return 0;
+}
+
 int io_ctl_init(void)
 {
     int epfd = -1;
-
     epfd = epoll_create(EV_MAX);
     if(epfd < 0)
         return -1;
@@ -202,12 +222,31 @@ int io_ctl_init(void)
         return epfd;
 }
 
-int io_ctl_act(int epfd,int fd,int action)
+int io_ctl_act(int epfd,conn_ctx_t* sp,int action)
 {
-    if(epfd < 0 || fd < 0)
+    if(!sp)
         return -1;
-    if(epoll_ctl(epfd,action,fd,&ev) < 0)
+    if(epfd < 0 || sp->io_data.fd < 0)
         return -1;
+    if(action == EPOLL_CTL_DEL)
+    {
+        if(epoll_ctl(epfd,action,sp->io_data.fd,NULL) < 0)
+            return -1;
+        return 0;
+    }
+    struct epoll_event ev;
+    memset(&ev,0,sizeof(ev));
+    if(action == EPOLL_CTL_ADD)
+    {
+        
+        ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
+        ev.data.ptr = (void*) sp;
+        if(epoll_ctl(epfd,action,sp->io_data.fd,&ev) < 0)
+        {
+            return -1;
+        }
+    }
+    
     return 0;
 }
 
@@ -221,69 +260,34 @@ int io_event_orch(int epfd)
         return -1;
     for(int i = 0 ; i < rc ; i++)
     {
-        if(ev_list[i].events & EPOLLIN)
+        conn_ctx_t* io_ptr = (conn_ctx_t*)ev_list[i].data.ptr;
+        uint32_t io_event = ev_list[i].events;
+        if(io_event & EPOLLIN)
         {
+            size_t rc = io_ptr->io_data.fd_ops.sp_read(&io_ptr->io_data,io_rc_buff,BUFF_SIZE);
+            if(rc < 0)
+                goto fd_error;
+            if(app_ringbuff_write(&(io_ptr->rxb),io_rc_buff,rc) < -1)
+                goto fd_error;
+            continue;
+        }
+        if(io_event & EPOLLOUT)
+        {
+            if(txq_flush(io_ptr,&(io_ptr->txq)) < 0)
+                goto fd_error;
+            continue;
 
         }
-        if(ev_list[i].events & EPOLLOUT)
+        if(io_event & (EPOLLERR|EPOLLHUP))
         {
-
+            goto fd_error;
         }
-        if(ev_list[i].events & (EPOLLERR|EPOLLHUP))
-        {
-            
-        }
+        fd_error:
+            io_ptr->io_data.fd_ops.sp_close(&io_ptr->io_data);
+            io_ctl_act(epfd,io_ptr,EV_DEL);
+            Communication_Carrier_Deinit(io_ptr);
+            continue;
     }
-}
-
-int rb_ops_registration(void)
-{
-    if(!rxb_ops)
-    {
-        rxb_ops = (rxb_ops_t*)calloc(1,sizeof(rxb_ops_t));
-        rxb_ops->rx_ulen = app_ringbuff_usedlen;
-        rxb_ops->rx_init = app_ringbuff_init;
-        rxb_ops->rx_rd = app_ringbuff_read;
-        rxb_ops->rx_wr = app_ringbuff_write;
-        rxb_ops->rx_deinit = app_ringbuff_deinit;
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
-}
-
-int tq_ops_registration(void)
-{
-    if(!txq_ops)
-    {
-        txq_ops = (txq_ops_t*)calloc(1,sizeof(txq_ops_t));
-        txq_ops->txq_init = txq_init;
-        txq_ops->txq_deinit = txq_deinit;
-        txq_ops->txq_pop = txq_pop;
-        txq_ops->txq_push = txq_push;
-        txq_ops->txq_flush = txq_flush;
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
-}
-
-int rxq_ops_logout(void)
-{
-    if(!rxb_ops)
-        return -1;
-    free(rxb_ops);
     return 0;
 }
 
-int txq_ops_logout(void)
-{
-    if(!txq_ops)
-        return -1;
-    free(txq_ops);
-    return 0;
-}
